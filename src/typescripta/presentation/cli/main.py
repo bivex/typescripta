@@ -20,6 +20,7 @@ from typescripta.application.dto import (
     ParseFileCommand,
     ParsingJobReportDTO,
     DetectSmellsCommand,
+    SmellJobReportDTO,
 )
 from typescripta.application.use_cases import ParsingJobService, SmellJobService
 from typescripta.domain.errors import TypeScriptaError
@@ -122,7 +123,10 @@ def main(argv: list[str] | None = None) -> int:
             report = _build_smell_service().run_smell_detection(
                 DetectSmellsCommand(path=args.path, ignore_folders=ignore)
             )
-            print(json.dumps(report.to_dict(), indent=2))
+            if getattr(args, "format", "json") == "markdown":
+                print(_render_smells_markdown(report))
+            else:
+                print(json.dumps(report.to_dict(), indent=2))
             return 0
         else:
             parser.error(f"unsupported command: {args.command}")
@@ -185,6 +189,12 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         nargs="+",
         help=f"Folders to ignore. Defaults to: {', '.join(DEFAULT_IGNORE_FOLDERS)}",
     )
+    smells.add_argument(
+        "--format",
+        choices=["json", "markdown"],
+        default="json",
+        help="Output format (default: json).",
+    )
     return parser
 
 
@@ -224,6 +234,42 @@ def _build_smell_service() -> SmellJobService:
             TemporaryFieldDetector(),
         ),
     )
+
+
+def _render_smells_markdown(report: SmellJobReportDTO) -> str:
+    lines = [
+        "# Code Smell Report",
+        f"\n**Job ID:** `{report.job_id}`",
+        f"\n## Summary",
+        f"- **Files Scanned:** {report.summary.source_count}",
+        f"- **Total Smells Found:** {report.summary.total_smell_count}",
+    ]
+
+    if report.summary.smell_counts_by_kind:
+        lines.append("\n### Breakdown by Kind")
+        for kind, count in sorted(report.summary.smell_counts_by_kind.items()):
+            lines.append(f"- **{kind}:** {count}")
+
+    lines.append("\n## Detailed Findings")
+    
+    found_any = False
+    for source_report in report.reports:
+        if not source_report.smells:
+            continue
+        
+        found_any = True
+        lines.append(f"\n### `{source_report.source_location}`")
+        lines.append("| Kind | Line:Col | Message |")
+        lines.append("| :--- | :--- | :--- |")
+        for smell in source_report.smells:
+            lines.append(
+                f"| {smell.kind} | {smell.line}:{smell.column} | {smell.message} |"
+            )
+    
+    if not found_any:
+        lines.append("\n*No code smells detected.*")
+
+    return "\n".join(lines)
 
 
 def _exit_code_for(report: ParsingJobReportDTO) -> int:
