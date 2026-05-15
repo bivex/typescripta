@@ -8,7 +8,13 @@ from typing import Sequence
 
 from typescripta.domain.control_flow import ControlFlowDiagram
 from typescripta.domain.events import DomainEvent
-from typescripta.domain.model import GrammarVersion, ParseOutcome, ParsingJob, SourceUnit
+from typescripta.domain.model import (
+    CodeSmell,
+    GrammarVersion,
+    ParseOutcome,
+    ParsingJob,
+    SourceUnit,
+)
 
 
 class SourceRepository(ABC):
@@ -41,6 +47,12 @@ class TypeScriptSyntaxParser(ABC):
 class TypeScriptControlFlowExtractor(ABC):
     @abstractmethod
     def extract(self, source_unit: SourceUnit) -> ControlFlowDiagram:
+        raise NotImplementedError
+
+
+class CodeSmellDetector(ABC):
+    @abstractmethod
+    def detect(self, source_unit: SourceUnit) -> tuple[CodeSmell, ...]:
         raise NotImplementedError
 
 

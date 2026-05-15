@@ -229,3 +229,31 @@ class ParsingJob:
     def ordered_outcomes(self) -> tuple[ParseOutcome, ...]:
         return tuple(self.outcomes[source_unit.identifier] for source_unit in self.source_units)
 
+
+@dataclass(frozen=True, slots=True)
+class CodeSmell:
+    kind: str
+    message: str
+    location: str
+    line: int
+    column: int
+
+
+@dataclass(frozen=True, slots=True)
+class SourceSmellReport:
+    source_location: str
+    smells: tuple[CodeSmell, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SmellJobSummary:
+    source_count: int
+    total_smell_count: int
+    smell_counts_by_kind: dict[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class SmellJob:
+    job_id: str
+    reports: tuple[SourceSmellReport, ...]
+    summary: SmellJobSummary
