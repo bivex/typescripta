@@ -64,6 +64,28 @@ def test_parse_directory_returns_report_for_all_files() -> None:
     assert len(report.sources) == 3
 
 
+def test_parse_directory_ignores_tests(tmp_path: Path) -> None:
+    service = _build_service()
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.ts").write_text("const x = 1;", encoding="utf-8")
+    (tmp_path / "src" / "main.test.ts").write_text("const x = 1;", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "utils.ts").write_text("const x = 1;", encoding="utf-8")
+    (tmp_path / "__tests__").mkdir()
+    (tmp_path / "__tests__" / "core.ts").write_text("const x = 1;", encoding="utf-8")
+
+    # Without ignore_tests
+    report_all = service.parse_directory(ParseDirectoryCommand(root_path=str(tmp_path)))
+    assert report_all.summary.source_count == 4
+
+    # With ignore_tests
+    report_filtered = service.parse_directory(
+        ParseDirectoryCommand(root_path=str(tmp_path), ignore_tests=True)
+    )
+    assert report_filtered.summary.source_count == 1
+    assert report_filtered.sources[0].source_location.endswith("main.ts")
+
+
 def test_parse_file_handles_enum_declaration(tmp_path: Path) -> None:
     service = _build_service()
     source_path = tmp_path / "enum_parse.ts"

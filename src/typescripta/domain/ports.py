@@ -28,6 +28,7 @@ class SourceRepository(ABC):
         root_path: str,
         ignore_folders: Sequence[str] = (),
         ignore_files: Sequence[str] = (),
+        ignore_tests: bool = False,
     ) -> Sequence[SourceUnit]:
         raise NotImplementedError
 

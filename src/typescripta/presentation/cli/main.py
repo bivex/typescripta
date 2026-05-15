@@ -91,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
                     root_path=args.path,
                     ignore_folders=ignore_folders,
                     ignore_files=ignore_files,
+                    ignore_tests=args.ignore_tests,
                 )
             )
         elif args.command == "nassi-file":
@@ -113,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
                     root_path=args.path,
                     ignore_folders=ignore_folders,
                     ignore_files=ignore_files,
+                    ignore_tests=args.ignore_tests,
                 )
             )
             output_dir = _resolve_output_directory(args.path, args.out)
@@ -146,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
                     path=args.path,
                     ignore_folders=ignore_folders,
                     ignore_files=ignore_files,
+                    ignore_tests=args.ignore_tests,
                 )
             )
             if getattr(args, "format", "json") == "markdown":
@@ -183,6 +186,11 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         nargs="+",
         help=f"Files to ignore. Defaults to: {', '.join(DEFAULT_IGNORE_FILES)}",
     )
+    parse_dir.add_argument(
+        "--ignore-tests",
+        action="store_true",
+        help="Skip test files (*.test.ts, *.spec.ts, etc.) and test folders.",
+    )
 
     nassi_file = subparsers.add_parser(
         "nassi-file",
@@ -213,6 +221,11 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         nargs="+",
         help=f"Files to ignore. Defaults to: {', '.join(DEFAULT_IGNORE_FILES)}",
     )
+    nassi_dir.add_argument(
+        "--ignore-tests",
+        action="store_true",
+        help="Skip test files (*.test.ts, *.spec.ts, etc.) and test folders.",
+    )
 
     smells = subparsers.add_parser(
         "smells",
@@ -228,6 +241,11 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         "--ignore-files",
         nargs="+",
         help=f"Files to ignore. Defaults to: {', '.join(DEFAULT_IGNORE_FILES)}",
+    )
+    smells.add_argument(
+        "--ignore-tests",
+        action="store_true",
+        help="Skip test files (*.test.ts, *.spec.ts, etc.) and test folders.",
     )
     smells.add_argument(
         "--format",

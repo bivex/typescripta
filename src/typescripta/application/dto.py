@@ -18,6 +18,7 @@ class ParseDirectoryCommand:
     root_path: str
     ignore_folders: tuple[str, ...] = ()
     ignore_files: tuple[str, ...] = ()
+    ignore_tests: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +136,7 @@ class DetectSmellsCommand:
     path: str
     ignore_folders: tuple[str, ...] = ()
     ignore_files: tuple[str, ...] = ()
+    ignore_tests: bool = False
 
 
 @dataclass(frozen=True, slots=True)

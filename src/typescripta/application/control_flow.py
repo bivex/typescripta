@@ -22,6 +22,7 @@ class BuildNassiDirectoryCommand:
     root_path: str
     ignore_folders: tuple[str, ...] = ()
     ignore_files: tuple[str, ...] = ()
+    ignore_tests: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,7 @@ class NassiDiagramService:
                 command.root_path,
                 ignore_folders=command.ignore_folders,
                 ignore_files=command.ignore_files,
+                ignore_tests=command.ignore_tests,
             )
         )
         documents = tuple(self._build_document(source_unit) for source_unit in source_units)

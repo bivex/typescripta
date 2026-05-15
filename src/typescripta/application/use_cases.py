@@ -56,6 +56,7 @@ class ParsingJobService:
                 command.root_path,
                 ignore_folders=command.ignore_folders,
                 ignore_files=command.ignore_files,
+                ignore_tests=command.ignore_tests,
             )
         )
         return self._run_job(source_units)
@@ -183,6 +184,7 @@ class SmellJobService:
                     path,
                     ignore_folders=command.ignore_folders,
                     ignore_files=command.ignore_files,
+                    ignore_tests=command.ignore_tests,
                 )
             )
         else:

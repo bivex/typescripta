@@ -30,6 +30,7 @@ class FileSystemSourceRepository(SourceRepository):
         root_path: str,
         ignore_folders: Sequence[str] = (),
         ignore_files: Sequence[str] = (),
+        ignore_tests: bool = False,
     ) -> tuple[SourceUnit, ...]:
         root = Path(root_path).expanduser().resolve()
         if not root.exists():
@@ -39,7 +40,21 @@ class FileSystemSourceRepository(SourceRepository):
 
         ignore_folders_set = set(ignore_folders)
         ignore_files_set = set(ignore_files)
+
+        if ignore_tests:
+            ignore_folders_set.add("__tests__")
+            ignore_folders_set.add("tests")
+
         source_paths: list[Path] = []
+
+        def _is_test_file(path: Path) -> bool:
+            name = path.name.lower()
+            return (
+                name.endswith(".test.ts")
+                or name.endswith(".spec.ts")
+                or name.endswith(".test.tsx")
+                or name.endswith(".spec.tsx")
+            )
 
         def _collect(current: Path) -> None:
             if current.name in ignore_folders_set:
@@ -48,8 +63,13 @@ class FileSystemSourceRepository(SourceRepository):
             # Add files in current directory
             for ext in self._EXTENSIONS:
                 for file_path in current.glob(f"*{ext}"):
-                    if file_path.is_file() and file_path.name not in ignore_files_set:
-                        source_paths.append(file_path)
+                    if not file_path.is_file():
+                        continue
+                    if file_path.name in ignore_files_set:
+                        continue
+                    if ignore_tests and _is_test_file(file_path):
+                        continue
+                    source_paths.append(file_path)
 
             # Recurse into subdirectories
             try:
