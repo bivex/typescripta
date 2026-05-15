@@ -2,8 +2,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from swifta.domain.errors import EmptyParsingJobError
-from swifta.domain.model import (
+from typescripta.domain.errors import EmptyParsingJobError
+from typescripta.domain.model import (
     GrammarVersion,
     ParseOutcome,
     ParseStatistics,
@@ -20,9 +20,9 @@ def test_parsing_job_requires_at_least_one_source_unit() -> None:
 
 def test_parsing_job_tracks_outcomes() -> None:
     source_unit = SourceUnit(
-        identifier=SourceUnitId("/tmp/example.swift"),
-        location="/tmp/example.swift",
-        content="struct Example {}",
+        identifier=SourceUnitId("/tmp/example.ts"),
+        location="/tmp/example.ts",
+        content="interface Example {}",
     )
     job = ParsingJob(
         job_id="job-1",
