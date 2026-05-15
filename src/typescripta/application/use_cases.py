@@ -53,7 +53,9 @@ class ParsingJobService:
     def parse_directory(self, command: ParseDirectoryCommand) -> ParsingJobReportDTO:
         source_units = tuple(
             self.source_repository.list_typescript_sources(
-                command.root_path, ignore_folders=command.ignore_folders
+                command.root_path,
+                ignore_folders=command.ignore_folders,
+                ignore_files=command.ignore_files,
             )
         )
         return self._run_job(source_units)
@@ -178,7 +180,9 @@ class SmellJobService:
         if self.source_repository.is_dir(path):
             source_units = tuple(
                 self.source_repository.list_typescript_sources(
-                    path, ignore_folders=command.ignore_folders
+                    path,
+                    ignore_folders=command.ignore_folders,
+                    ignore_files=command.ignore_files,
                 )
             )
         else:

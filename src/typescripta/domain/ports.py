@@ -24,7 +24,10 @@ class SourceRepository(ABC):
 
     @abstractmethod
     def list_typescript_sources(
-        self, root_path: str, ignore_folders: Sequence[str] = ()
+        self,
+        root_path: str,
+        ignore_folders: Sequence[str] = (),
+        ignore_files: Sequence[str] = (),
     ) -> Sequence[SourceUnit]:
         raise NotImplementedError
 

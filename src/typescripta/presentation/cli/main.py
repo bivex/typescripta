@@ -61,6 +61,16 @@ DEFAULT_IGNORE_FOLDERS = (
     ".ruff_cache",
     ".pytest_cache",
     "__pycache__",
+    ".idea",
+    ".vscode",
+    "coverage",
+)
+
+DEFAULT_IGNORE_FILES = (
+    "next-env.d.ts",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
 )
 
 
@@ -74,9 +84,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "parse-file":
             report = _build_parse_service().parse_file(ParseFileCommand(path=args.path))
         elif args.command == "parse-dir":
-            ignore = tuple(args.ignore) if args.ignore else DEFAULT_IGNORE_FOLDERS
+            ignore_folders = tuple(args.ignore_folders) if args.ignore_folders else DEFAULT_IGNORE_FOLDERS
+            ignore_files = tuple(args.ignore_files) if args.ignore_files else DEFAULT_IGNORE_FILES
             report = _build_parse_service().parse_directory(
-                ParseDirectoryCommand(root_path=args.path, ignore_folders=ignore)
+                ParseDirectoryCommand(
+                    root_path=args.path,
+                    ignore_folders=ignore_folders,
+                    ignore_files=ignore_files,
+                )
             )
         elif args.command == "nassi-file":
             document = _build_nassi_service().build_file_diagram(
@@ -91,9 +106,14 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(payload, indent=2))
             return 0
         elif args.command == "nassi-dir":
-            ignore = tuple(args.ignore) if args.ignore else DEFAULT_IGNORE_FOLDERS
+            ignore_folders = tuple(args.ignore_folders) if args.ignore_folders else DEFAULT_IGNORE_FOLDERS
+            ignore_files = tuple(args.ignore_files) if args.ignore_files else DEFAULT_IGNORE_FILES
             bundle = _build_nassi_service().build_directory_diagrams(
-                BuildNassiDirectoryCommand(root_path=args.path, ignore_folders=ignore)
+                BuildNassiDirectoryCommand(
+                    root_path=args.path,
+                    ignore_folders=ignore_folders,
+                    ignore_files=ignore_files,
+                )
             )
             output_dir = _resolve_output_directory(args.path, args.out)
             written_diagrams = _write_directory_diagrams(bundle, output_dir)
@@ -119,9 +139,14 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(payload, indent=2))
             return 0
         elif args.command == "smells":
-            ignore = tuple(args.ignore) if args.ignore else DEFAULT_IGNORE_FOLDERS
+            ignore_folders = tuple(args.ignore_folders) if args.ignore_folders else DEFAULT_IGNORE_FOLDERS
+            ignore_files = tuple(args.ignore_files) if args.ignore_files else DEFAULT_IGNORE_FILES
             report = _build_smell_service().run_smell_detection(
-                DetectSmellsCommand(path=args.path, ignore_folders=ignore)
+                DetectSmellsCommand(
+                    path=args.path,
+                    ignore_folders=ignore_folders,
+                    ignore_files=ignore_files,
+                )
             )
             if getattr(args, "format", "json") == "markdown":
                 print(_render_smells_markdown(report))
@@ -149,9 +174,14 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     parse_dir = subparsers.add_parser("parse-dir", help="Parse all TypeScript files in a directory.")
     parse_dir.add_argument("path", help="Path to a directory.")
     parse_dir.add_argument(
-        "--ignore",
+        "--ignore-folders",
         nargs="+",
         help=f"Folders to ignore. Defaults to: {', '.join(DEFAULT_IGNORE_FOLDERS)}",
+    )
+    parse_dir.add_argument(
+        "--ignore-files",
+        nargs="+",
+        help=f"Files to ignore. Defaults to: {', '.join(DEFAULT_IGNORE_FILES)}",
     )
 
     nassi_file = subparsers.add_parser(
@@ -174,9 +204,14 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         help="Output directory. Defaults to <input>.nassi/.",
     )
     nassi_dir.add_argument(
-        "--ignore",
+        "--ignore-folders",
         nargs="+",
         help=f"Folders to ignore. Defaults to: {', '.join(DEFAULT_IGNORE_FOLDERS)}",
+    )
+    nassi_dir.add_argument(
+        "--ignore-files",
+        nargs="+",
+        help=f"Files to ignore. Defaults to: {', '.join(DEFAULT_IGNORE_FILES)}",
     )
 
     smells = subparsers.add_parser(
@@ -185,9 +220,14 @@ def _build_argument_parser() -> argparse.ArgumentParser:
     )
     smells.add_argument("path", help="Path to a .ts file or a directory.")
     smells.add_argument(
-        "--ignore",
+        "--ignore-folders",
         nargs="+",
         help=f"Folders to ignore. Defaults to: {', '.join(DEFAULT_IGNORE_FOLDERS)}",
+    )
+    smells.add_argument(
+        "--ignore-files",
+        nargs="+",
+        help=f"Files to ignore. Defaults to: {', '.join(DEFAULT_IGNORE_FILES)}",
     )
     smells.add_argument(
         "--format",

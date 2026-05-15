@@ -4,8 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "typescripta"
-version = "0.1.4"
+version = "0.1.5"
 description = "A hexagonal TypeScript parser built on top of ANTLR."
+
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

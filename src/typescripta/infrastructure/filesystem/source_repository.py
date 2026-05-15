@@ -26,7 +26,10 @@ class FileSystemSourceRepository(SourceRepository):
         return self._load_source_unit(source_path)
 
     def list_typescript_sources(
-        self, root_path: str, ignore_folders: Sequence[str] = ()
+        self,
+        root_path: str,
+        ignore_folders: Sequence[str] = (),
+        ignore_files: Sequence[str] = (),
     ) -> tuple[SourceUnit, ...]:
         root = Path(root_path).expanduser().resolve()
         if not root.exists():
@@ -34,17 +37,18 @@ class FileSystemSourceRepository(SourceRepository):
         if not root.is_dir():
             raise InputValidationError(f"path is not a directory: {root}")
 
-        ignore_set = set(ignore_folders)
+        ignore_folders_set = set(ignore_folders)
+        ignore_files_set = set(ignore_files)
         source_paths: list[Path] = []
 
         def _collect(current: Path) -> None:
-            if current.name in ignore_set:
+            if current.name in ignore_folders_set:
                 return
 
             # Add files in current directory
             for ext in self._EXTENSIONS:
                 for file_path in current.glob(f"*{ext}"):
-                    if file_path.is_file():
+                    if file_path.is_file() and file_path.name not in ignore_files_set:
                         source_paths.append(file_path)
 
             # Recurse into subdirectories
