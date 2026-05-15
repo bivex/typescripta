@@ -6,5 +6,5 @@ __pycache__/
 *.egg-info/
 build/
 dist/
-src/swifta/infrastructure/antlr/generated/swift5/
+src/typescripta/infrastructure/antlr/generated/typescript/
 /.playwright-mcp

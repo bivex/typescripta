@@ -1,0 +1,2 @@
+"""TypeScripta package."""
+

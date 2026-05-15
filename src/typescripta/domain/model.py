@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
-from swifta.domain.errors import (
+from typescripta.domain.errors import (
     DuplicateSourceUnitError,
     EmptyParsingJobError,
     ParsingJobAlreadyCompletedError,
@@ -29,14 +29,14 @@ class ParseStatus(StrEnum):
 class StructuralElementKind(StrEnum):
     IMPORT = "import"
     TYPE_ALIAS = "type_alias"
-    CONSTANT = "constant"
-    VARIABLE = "variable"
+    VARIABLE_DECLARATION = "variable_declaration"
     FUNCTION = "function"
+    ARROW_FUNCTION = "arrow_function"
     ENUM = "enum"
-    STRUCT = "struct"
     CLASS = "class"
-    PROTOCOL = "protocol"
-    EXTENSION = "extension"
+    INTERFACE = "interface"
+    NAMESPACE = "namespace"
+    DECORATOR = "decorator"
 
 
 @dataclass(frozen=True, slots=True)

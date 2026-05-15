@@ -8,9 +8,9 @@ from dataclasses import asdict, is_dataclass
 from datetime import UTC, datetime
 from enum import Enum
 
-from swifta.domain.events import DomainEvent
-from swifta.domain.model import ParsingJob
-from swifta.domain.ports import Clock, DomainEventPublisher, ParsingJobRepository
+from typescripta.domain.events import DomainEvent
+from typescripta.domain.model import ParsingJob
+from typescripta.domain.ports import Clock, DomainEventPublisher, ParsingJobRepository
 
 
 class SystemClock(Clock):
@@ -28,7 +28,7 @@ class InMemoryParsingJobRepository(ParsingJobRepository):
 
 class StructuredLoggingEventPublisher(DomainEventPublisher):
     def __init__(self, logger: logging.Logger | None = None) -> None:
-        self._logger = logger or logging.getLogger("swifta.events")
+        self._logger = logger or logging.getLogger("typescripta.events")
 
     def publish(self, event: DomainEvent) -> None:
         payload = _serialize(event)
@@ -52,4 +52,3 @@ def _serialize(value: object) -> object:
     if isinstance(value, list):
         return [_serialize(item) for item in value]
     return value
-

@@ -6,21 +6,21 @@ from html import escape
 from math import ceil
 import re
 
-from swifta.domain.control_flow import (
+from typescripta.domain.control_flow import (
     ActionFlowStep,
     ControlFlowDiagram,
     ControlFlowStep,
-    DeferFlowStep,
-    DoCatchFlowStep,
+    CStyleForFlowStep,
+    DoWhileFlowStep,
     ForInFlowStep,
-    GuardFlowStep,
+    ForOfFlowStep,
     IfFlowStep,
-    RepeatWhileFlowStep,
     SwitchCaseFlow,
     SwitchFlowStep,
+    TryCatchFlowStep,
     WhileFlowStep,
 )
-from swifta.domain.ports import NassiDiagramRenderer
+from typescripta.domain.ports import NassiDiagramRenderer
 
 
 class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
@@ -535,7 +535,7 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
     <div class="viewer">
       <div class="titlebar">
         <div class="titlebar-icon"></div>
-        <span class="titlebar-text">Swifta · NSD Viewer</span>
+        <span class="titlebar-text">TypeScripta · NSD Viewer</span>
       </div>
       <div class="toolbar">
         <span class="toolbar-label">Nassi-Shneiderman</span>
@@ -601,30 +601,25 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
                 f"{trailing_note}"
                 "</div>"
             )
-        if isinstance(step, GuardFlowStep):
-            return (
-                '<div class="ns-node ns-guard">'
-                f"{self._render_header(f'Guard {step.condition}')}"
-                '<div class="ns-branch ns-branch-no"><div class="ns-branch-title">Failure / exit</div>'
-                f"{self._render_sequence(step.else_steps, depth=depth + 1)}"
-                "</div>"
-                "</div>"
-            )
         if isinstance(step, WhileFlowStep):
             return self._render_single_body(f"While {step.condition}", step.body_steps, depth=depth)
         if isinstance(step, ForInFlowStep):
             return self._render_single_body(f"For {step.header}", step.body_steps, depth=depth)
-        if isinstance(step, RepeatWhileFlowStep):
+        if isinstance(step, ForOfFlowStep):
+            return self._render_single_body(f"For {step.header}", step.body_steps, depth=depth)
+        if isinstance(step, CStyleForFlowStep):
+            return self._render_single_body(f"For {step.header}", step.body_steps, depth=depth)
+        if isinstance(step, DoWhileFlowStep):
             return (
                 '<div class="ns-node ns-repeat">'
-                f"{self._render_header('Repeat')}"
+                f"{self._render_header('Do')}"
                 f"{self._render_sequence(step.body_steps, depth=depth + 1)}"
                 f"{self._render_footer(f'While {step.condition}')}"
                 "</div>"
             )
         if isinstance(step, SwitchFlowStep):
             return self._render_switch(step, depth=depth)
-        if isinstance(step, DoCatchFlowStep):
+        if isinstance(step, TryCatchFlowStep):
             catches = "".join(
                 self._render_single_body(
                     f"Catch {catch.pattern}",
@@ -634,15 +629,22 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
                 )
                 for catch in step.catches
             )
+            finally_markup = ""
+            if step.finally_steps:
+                finally_markup = self._render_single_body(
+                    "Finally",
+                    step.finally_steps,
+                    depth=depth + 1,
+                    css_class="ns-defer",
+                )
             return (
                 '<div class="ns-node ns-do-catch">'
-                f"{self._render_header('Do')}"
+                f"{self._render_header('Try')}"
                 f"{self._render_sequence(step.body_steps, depth=depth + 1)}"
                 f'<div class="ns-catches">{catches}</div>'
+                f"{finally_markup}"
                 "</div>"
             )
-        if isinstance(step, DeferFlowStep):
-            return self._render_single_body("Defer", step.body_steps, depth=depth, css_class="ns-defer")
         raise TypeError(f"unsupported step type: {type(step)!r}")
 
     def _render_case(self, case: SwitchCaseFlow) -> str:

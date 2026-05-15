@@ -1,4 +1,4 @@
-"""Extract structured control flow from Swift source through ANTLR."""
+"""Extract structured control flow from TypeScript source through ANTLR."""
 
 from __future__ import annotations
 
@@ -8,29 +8,29 @@ from dataclasses import dataclass
 from antlr4 import CommonTokenStream, InputStream
 from antlr4.Token import Token
 
-from swifta.domain.control_flow import (
+from typescripta.domain.control_flow import (
     ActionFlowStep,
     CatchClauseFlow,
     ControlFlowDiagram,
     ControlFlowStep,
-    DeferFlowStep,
-    DoCatchFlowStep,
+    CStyleForFlowStep,
+    DoWhileFlowStep,
     ForInFlowStep,
+    ForOfFlowStep,
     FunctionControlFlow,
-    GuardFlowStep,
     IfFlowStep,
-    RepeatWhileFlowStep,
     SwitchCaseFlow,
     SwitchFlowStep,
+    TryCatchFlowStep,
     WhileFlowStep,
 )
-from swifta.domain.model import SourceUnit
-from swifta.domain.ports import SwiftControlFlowExtractor
-from swifta.infrastructure.antlr.runtime import (
+from typescripta.domain.model import SourceUnit
+from typescripta.domain.ports import TypeScriptControlFlowExtractor
+from typescripta.infrastructure.antlr.runtime import (
     load_generated_types,
     parse_code_block_text,
-    parse_statement_text,
     parse_source_text,
+    parse_statement_text,
 )
 
 
@@ -80,23 +80,13 @@ _MAX_EXPANDED_CLOSURE_LINES = 36
 _SUMMARY_LABEL_LIMIT = 96
 
 
-class AntlrSwiftControlFlowExtractor(SwiftControlFlowExtractor):
+class AntlrTypeScriptControlFlowExtractor(TypeScriptControlFlowExtractor):
     def __init__(self) -> None:
         self._generated = load_generated_types()
         self._lexer_type = self._generated.lexer_type
 
     def extract(self, source_unit: SourceUnit) -> ControlFlowDiagram:
-        try:
-            function_slices = _scan_function_slices(source_unit.content, self._generated)
-            functions = tuple(self._extract_function_slice(function_slice) for function_slice in function_slices)
-            return ControlFlowDiagram(
-                source_location=source_unit.location,
-                functions=functions,
-            )
-        except Exception:
-            # Fallback to the slower whole-file parser when the lightweight scanner
-            # cannot safely isolate function bodies.
-            return self._extract_via_full_parse(source_unit)
+        return self._extract_via_full_parse(source_unit)
 
     def _extract_function_slice(self, function_slice: _FunctionSlice) -> FunctionControlFlow:
         quick_steps = _extract_lightweight_steps(
@@ -122,7 +112,7 @@ class AntlrSwiftControlFlowExtractor(SwiftControlFlowExtractor):
             name=function_slice.name,
             signature=function_slice.signature,
             container=function_slice.container,
-            steps=visitor._extract_code_block(parse_result.tree),
+            steps=visitor._extract_block(parse_result.tree),
         )
 
     def _extract_via_full_parse(self, source_unit: SourceUnit) -> ControlFlowDiagram:
@@ -136,6 +126,13 @@ class AntlrSwiftControlFlowExtractor(SwiftControlFlowExtractor):
             source_location=source_unit.location,
             functions=tuple(visitor.functions),
         )
+
+
+# ---------------------------------------------------------------------------
+# Token-level function scanner
+# ---------------------------------------------------------------------------
+
+_CONTAINER_TOKEN_TYPES_ATTRS = ("Class", "Enum", "Interface", "Namespace")
 
 
 def _scan_function_slices(
@@ -152,6 +149,12 @@ def _scan_function_slices(
     )
     lexer_type = generated.lexer_type
 
+    container_types = {
+        getattr(lexer_type, attr)
+        for attr in _CONTAINER_TOKEN_TYPES_ATTRS
+        if hasattr(lexer_type, attr)
+    }
+
     functions: list[_FunctionSlice] = []
     container_stack: list[_ContainerScope] = []
     pending_container: _PendingContainer | None = None
@@ -161,7 +164,7 @@ def _scan_function_slices(
     while index < len(tokens):
         token = tokens[index]
 
-        if token.type == lexer_type.LCURLY:
+        if token.type == lexer_type.OpenBrace:
             brace_depth += 1
             if pending_container is not None:
                 container_stack.append(
@@ -171,27 +174,21 @@ def _scan_function_slices(
             index += 1
             continue
 
-        if token.type == lexer_type.RCURLY:
+        if token.type == lexer_type.CloseBrace:
             if container_stack and container_stack[-1].body_depth == brace_depth:
                 container_stack.pop()
             brace_depth = max(brace_depth - 1, 0)
             index += 1
             continue
 
-        if token.type in {
-            lexer_type.CLASS,
-            lexer_type.STRUCT,
-            lexer_type.ENUM,
-            lexer_type.PROTOCOL,
-            lexer_type.EXTENSION,
-        }:
+        if token.type in container_types:
             pending_container = _PendingContainer(
                 name=_extract_container_name(tokens, index + 1, lexer_type)
             )
             index += 1
             continue
 
-        if token.type == lexer_type.FUNC:
+        if token.type == lexer_type.Function:
             function_slice, next_index = _try_scan_function_slice(
                 source_text,
                 tokens,
@@ -209,7 +206,9 @@ def _scan_function_slices(
     return tuple(functions)
 
 
-def _extract_container_name(tokens: tuple[object, ...], start_index: int, lexer_type: object) -> str:
+def _extract_container_name(
+    tokens: tuple[object, ...], start_index: int, lexer_type: object
+) -> str:
     if start_index >= len(tokens):
         return "anonymous"
 
@@ -275,9 +274,9 @@ def _extract_function_name(
         token = tokens[index]
         if token.type == lexer_type.Identifier:
             return token.text
-        if token.type == lexer_type.LPAREN:
+        if token.type == lexer_type.OpenParen:
             return None
-        if token.type in {lexer_type.LCURLY, lexer_type.RCURLY}:
+        if token.type in {lexer_type.OpenBrace, lexer_type.CloseBrace}:
             return None
         index += 1
     return None
@@ -296,22 +295,23 @@ def _find_function_body_open(
     while index < len(tokens):
         token = tokens[index]
         text = token.text
-
-        if token.type == lexer_type.LPAREN:
+        if token.type == lexer_type.OpenParen:
             paren_depth += 1
-        elif token.type == lexer_type.RPAREN:
+        elif token.type == lexer_type.CloseParen:
             paren_depth = max(paren_depth - 1, 0)
-        elif text == "[":
-            square_depth += 1
-        elif text == "]":
-            square_depth = max(square_depth - 1, 0)
         elif text == "<":
             angle_depth += 1
         elif text == ">":
             angle_depth = max(angle_depth - 1, 0)
-        elif token.type == lexer_type.LCURLY and paren_depth == square_depth == angle_depth == 0:
+        elif (
+            token.type == lexer_type.OpenBrace
+            and paren_depth == square_depth == angle_depth == 0
+        ):
             return index
-        elif token.type == lexer_type.RCURLY and paren_depth == square_depth == angle_depth == 0:
+        elif (
+            token.type == lexer_type.CloseBrace
+            and paren_depth == square_depth == angle_depth == 0
+        ):
             return None
 
         index += 1
@@ -328,9 +328,9 @@ def _find_matching_brace(
     index = open_index + 1
     while index < len(tokens):
         token = tokens[index]
-        if token.type == lexer_type.LCURLY:
+        if token.type == lexer_type.OpenBrace:
             depth += 1
-        elif token.type == lexer_type.RCURLY:
+        elif token.type == lexer_type.CloseBrace:
             depth -= 1
             if depth == 0:
                 return index
@@ -340,6 +340,11 @@ def _find_matching_brace(
 
 def _compact_source_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+# ---------------------------------------------------------------------------
+# Lightweight step extraction (token-level, no full parse)
+# ---------------------------------------------------------------------------
 
 
 def _extract_lightweight_steps(
@@ -359,33 +364,7 @@ def _extract_lightweight_steps(
         if not tokens:
             continue
 
-        closure_body = _extract_autoreleasepool_body(
-            statement_text,
-            tokens,
-            base_offset,
-            lexer_type,
-        )
-        if closure_body is not None:
-            if _should_summarize_code_block(closure_body):
-                steps.extend(_summarize_code_block_steps(closure_body, lexer_type))
-                continue
-            nested_steps = _extract_lightweight_steps(
-                closure_body,
-                generated,
-                visitor_type,
-                lexer_type,
-            )
-            if nested_steps is None:
-                parse_result = parse_code_block_text(closure_body, generated)
-                visitor = _build_control_flow_visitor(
-                    visitor_type,
-                    _ExtractorContext(token_stream=parse_result.token_stream),
-                )()
-                nested_steps = visitor._extract_code_block(parse_result.tree)
-            steps.extend(nested_steps)
-            continue
-
-        trailing_body = _extract_trailing_closure_body(
+        trailing_body = _extract_trailing_block_body(
             statement_text,
             tokens,
             base_offset,
@@ -407,7 +386,7 @@ def _extract_lightweight_steps(
                     visitor_type,
                     _ExtractorContext(token_stream=parse_result.token_stream),
                 )()
-                nested_steps = visitor._extract_code_block(parse_result.tree)
+                nested_steps = visitor._extract_block(parse_result.tree)
             steps.extend(nested_steps)
             continue
 
@@ -499,17 +478,19 @@ def _build_summarized_structured_step(
     starter = tokens[0].text
     if starter == "if":
         return _build_summarized_if_step(statement_text, tokens, base_offset, lexer_type)
-    if starter == "guard":
-        return _build_summarized_guard_step(statement_text, tokens, base_offset, lexer_type)
     if starter == "for":
-        return _build_summarized_for_in_step(statement_text, tokens, base_offset, lexer_type)
+        return _build_summarized_for_step(statement_text, tokens, base_offset, lexer_type)
     if starter == "while":
         return _build_summarized_while_step(statement_text, tokens, base_offset, lexer_type)
-    if starter == "repeat":
-        return _build_summarized_repeat_while_step(statement_text, tokens, base_offset, lexer_type)
-    if starter == "defer":
-        return _build_summarized_defer_step(statement_text, tokens, base_offset, lexer_type)
-    return ActionFlowStep(_summarize_structured_header(statement_text, tokens, base_offset, lexer_type))
+    if starter == "do":
+        return _build_summarized_do_while_step(statement_text, tokens, base_offset, lexer_type)
+    if starter == "switch":
+        return _build_summarized_switch_step(statement_text, tokens, base_offset, lexer_type)
+    if starter == "try":
+        return _build_summarized_try_step(statement_text, tokens, base_offset, lexer_type)
+    return ActionFlowStep(
+        _summarize_structured_header(statement_text, tokens, base_offset, lexer_type)
+    )
 
 
 def _build_summarized_if_step(
@@ -573,30 +554,7 @@ def _build_summarized_if_step(
     )
 
 
-def _build_summarized_guard_step(
-    statement_text: str,
-    tokens: tuple[object, ...],
-    base_offset: int,
-    lexer_type: object,
-) -> ControlFlowStep:
-    block_range = _find_top_level_code_block(tokens, 1, lexer_type)
-    if block_range is None:
-        return ActionFlowStep(_compact_label_text(statement_text.strip().removesuffix(";")))
-
-    open_index, close_index = block_range
-    condition = _compact_label_text(
-        _slice_token_text(statement_text, tokens, base_offset, 1, open_index - 1)
-    )
-    return GuardFlowStep(
-        condition=condition or "condition",
-        else_steps=_summarize_code_block_steps(
-            _slice_token_text(statement_text, tokens, base_offset, open_index, close_index),
-            lexer_type,
-        ),
-    )
-
-
-def _build_summarized_for_in_step(
+def _build_summarized_for_step(
     statement_text: str,
     tokens: tuple[object, ...],
     base_offset: int,
@@ -610,13 +568,16 @@ def _build_summarized_for_in_step(
     header = _compact_label_text(
         _slice_token_text(statement_text, tokens, base_offset, 1, open_index - 1)
     )
-    return ForInFlowStep(
-        header=header or "item in collection",
-        body_steps=_summarize_code_block_steps(
-            _slice_token_text(statement_text, tokens, base_offset, open_index, close_index),
-            lexer_type,
-        ),
+    body_steps = _summarize_code_block_steps(
+        _slice_token_text(statement_text, tokens, base_offset, open_index, close_index),
+        lexer_type,
     )
+
+    if " in " in header:
+        return ForInFlowStep(header=header or "item in collection", body_steps=body_steps)
+    if " of " in header:
+        return ForOfFlowStep(header=header or "item of collection", body_steps=body_steps)
+    return CStyleForFlowStep(header=header or "for (...)", body_steps=body_steps)
 
 
 def _build_summarized_while_step(
@@ -642,7 +603,7 @@ def _build_summarized_while_step(
     )
 
 
-def _build_summarized_repeat_while_step(
+def _build_summarized_do_while_step(
     statement_text: str,
     tokens: tuple[object, ...],
     base_offset: int,
@@ -665,7 +626,7 @@ def _build_summarized_repeat_while_step(
                 len(tokens) - 1,
             ).removesuffix(";")
         )
-    return RepeatWhileFlowStep(
+    return DoWhileFlowStep(
         condition=condition or "condition",
         body_steps=_summarize_code_block_steps(
             _slice_token_text(statement_text, tokens, base_offset, open_index, close_index),
@@ -674,7 +635,27 @@ def _build_summarized_repeat_while_step(
     )
 
 
-def _build_summarized_defer_step(
+def _build_summarized_switch_step(
+    statement_text: str,
+    tokens: tuple[object, ...],
+    base_offset: int,
+    lexer_type: object,
+) -> ControlFlowStep:
+    block_range = _find_top_level_code_block(tokens, 1, lexer_type)
+    if block_range is None:
+        return ActionFlowStep(_compact_label_text(statement_text.strip().removesuffix(";")))
+
+    open_index, _ = block_range
+    expression = _compact_label_text(
+        _slice_token_text(statement_text, tokens, base_offset, 1, open_index - 1)
+    )
+    return SwitchFlowStep(
+        expression=expression or "expression",
+        cases=(),
+    )
+
+
+def _build_summarized_try_step(
     statement_text: str,
     tokens: tuple[object, ...],
     base_offset: int,
@@ -685,11 +666,52 @@ def _build_summarized_defer_step(
         return ActionFlowStep(_compact_label_text(statement_text.strip().removesuffix(";")))
 
     open_index, close_index = block_range
-    return DeferFlowStep(
-        body_steps=_summarize_code_block_steps(
-            _slice_token_text(statement_text, tokens, base_offset, open_index, close_index),
-            lexer_type,
-        )
+    body_steps = _summarize_code_block_steps(
+        _slice_token_text(statement_text, tokens, base_offset, open_index, close_index),
+        lexer_type,
+    )
+
+    catches: list[CatchClauseFlow] = []
+    index = close_index + 1
+    finally_steps: tuple[ControlFlowStep, ...] = ()
+
+    while index < len(tokens):
+        if tokens[index].text == "catch":
+            catch_block = _find_top_level_code_block(tokens, index + 1, lexer_type)
+            if catch_block is not None:
+                catches.append(
+                    CatchClauseFlow(
+                        pattern="catch",
+                        steps=_summarize_code_block_steps(
+                            _slice_token_text(
+                                statement_text, tokens, base_offset, *catch_block
+                            ),
+                            lexer_type,
+                        ),
+                    )
+                )
+                index = catch_block[1] + 1
+            else:
+                index += 1
+        elif tokens[index].text == "finally":
+            finally_block = _find_top_level_code_block(tokens, index + 1, lexer_type)
+            if finally_block is not None:
+                finally_steps = _summarize_code_block_steps(
+                    _slice_token_text(
+                        statement_text, tokens, base_offset, *finally_block
+                    ),
+                    lexer_type,
+                )
+                index = finally_block[1] + 1
+            else:
+                index += 1
+        else:
+            index += 1
+
+    return TryCatchFlowStep(
+        body_steps=body_steps,
+        catches=tuple(catches),
+        finally_steps=finally_steps,
     )
 
 
@@ -714,19 +736,14 @@ def _find_top_level_code_block(
     lexer_type: object,
 ) -> tuple[int, int] | None:
     paren_depth = 0
-    square_depth = 0
 
     for index in range(start_index, len(tokens)):
         token = tokens[index]
-        if token.type == lexer_type.LPAREN:
+        if token.type == lexer_type.OpenParen:
             paren_depth += 1
-        elif token.type == lexer_type.RPAREN:
+        elif token.type == lexer_type.CloseParen:
             paren_depth = max(paren_depth - 1, 0)
-        elif token.text == "[":
-            square_depth += 1
-        elif token.text == "]":
-            square_depth = max(square_depth - 1, 0)
-        elif token.type == lexer_type.LCURLY and paren_depth == square_depth == 0:
+        elif token.type == lexer_type.OpenBrace and paren_depth == 0:
             close_index = _find_matching_brace(tokens, index, lexer_type)
             if close_index is not None:
                 return index, close_index
@@ -761,7 +778,7 @@ def _split_top_level_statement_spans(
     lexer_type: object,
 ) -> tuple[tuple[str, tuple[object, ...], int], ...] | None:
     tokens = _lex_default_tokens(body_text, lexer_type)
-    if not tokens or tokens[0].type != lexer_type.LCURLY:
+    if not tokens or tokens[0].type != lexer_type.OpenBrace:
         return None
 
     close_index = _find_matching_brace(tokens, 0, lexer_type)
@@ -771,7 +788,6 @@ def _split_top_level_statement_spans(
     spans: list[tuple[str, tuple[object, ...], int]] = []
     brace_depth = 1
     paren_depth = 0
-    square_depth = 0
     statement_start_index: int | None = None
 
     for index in range(1, close_index):
@@ -779,17 +795,13 @@ def _split_top_level_statement_spans(
         if statement_start_index is None:
             statement_start_index = index
 
-        if token.type == lexer_type.LPAREN:
+        if token.type == lexer_type.OpenParen:
             paren_depth += 1
-        elif token.type == lexer_type.RPAREN:
+        elif token.type == lexer_type.CloseParen:
             paren_depth = max(paren_depth - 1, 0)
-        elif token.text == "[":
-            square_depth += 1
-        elif token.text == "]":
-            square_depth = max(square_depth - 1, 0)
-        elif token.type == lexer_type.LCURLY:
+        elif token.type == lexer_type.OpenBrace:
             brace_depth += 1
-        elif token.type == lexer_type.RCURLY:
+        elif token.type == lexer_type.CloseBrace:
             brace_depth -= 1
 
         next_token = tokens[index + 1] if index + 1 < close_index else None
@@ -798,14 +810,14 @@ def _split_top_level_statement_spans(
         if (
             token.text == ";"
             and brace_depth == 1
-            and paren_depth == square_depth == 0
+            and paren_depth == 0
         ):
             at_statement_end = True
         elif (
             next_token is not None
             and brace_depth == 1
-            and paren_depth == square_depth == 0
-            and next_token.text not in {"else", "catch"}
+            and paren_depth == 0
+            and next_token.text not in {"else", "catch", "finally"}
             and next_token.line > token.line
         ):
             at_statement_end = True
@@ -828,81 +840,39 @@ def _structured_token_types(lexer_type: object) -> set[int]:
     return {
         token_type
         for token_type in {
-            getattr(lexer_type, "IF", None),
-            getattr(lexer_type, "GUARD", None),
-            getattr(lexer_type, "FOR", None),
-            getattr(lexer_type, "WHILE", None),
-            getattr(lexer_type, "REPEAT", None),
-            getattr(lexer_type, "SWITCH", None),
-            getattr(lexer_type, "DO", None),
-            getattr(lexer_type, "DEFER", None),
+            getattr(lexer_type, "If", None),
+            getattr(lexer_type, "For", None),
+            getattr(lexer_type, "While", None),
+            getattr(lexer_type, "Do", None),
+            getattr(lexer_type, "Switch", None),
+            getattr(lexer_type, "Try", None),
         }
         if token_type is not None
     }
 
 
-def _extract_autoreleasepool_body(
+def _extract_trailing_block_body(
     statement_text: str,
     tokens: tuple[object, ...],
     base_offset: int,
     lexer_type: object,
 ) -> str | None:
-    if not tokens:
-        return None
-
-    index = 0
-    if tokens[0].text == "return":
-        index = 1
-    if index >= len(tokens) or tokens[index].text != "autoreleasepool":
-        return None
-
-    open_index = None
-    for candidate_index in range(index + 1, len(tokens)):
-        if tokens[candidate_index].type == lexer_type.LCURLY:
-            open_index = candidate_index
-            break
-    if open_index is None:
-        return None
-
-    close_index = _find_matching_brace(tokens, open_index, lexer_type)
-    if close_index != len(tokens) - 1:
-        return None
-
-    return statement_text[
-        tokens[open_index].start - base_offset : tokens[close_index].stop + 1 - base_offset
-    ]
-
-
-def _extract_trailing_closure_body(
-    statement_text: str,
-    tokens: tuple[object, ...],
-    base_offset: int,
-    lexer_type: object,
-) -> str | None:
-    """Return the ``{ ... }`` text of a trailing closure, or ``None``.
-
-    A trailing closure is detected when:
-    - The last token is ``RCURLY``
-    - The first token is NOT a structured keyword (if/guard/for/while/...)
-    - The matching ``LCURLY`` for that final ``RCURLY`` is at index > 0
-    """
     if len(tokens) < 3:
         return None
 
-    if tokens[-1].type != lexer_type.RCURLY:
+    if tokens[-1].type != lexer_type.CloseBrace:
         return None
 
     structured = _structured_token_types(lexer_type)
     if tokens[0].type in structured:
         return None
 
-    # Walk backwards from the end to find the matching LCURLY.
     depth = 0
     open_index: int | None = None
     for i in range(len(tokens) - 1, -1, -1):
-        if tokens[i].type == lexer_type.RCURLY:
+        if tokens[i].type == lexer_type.CloseBrace:
             depth += 1
-        elif tokens[i].type == lexer_type.LCURLY:
+        elif tokens[i].type == lexer_type.OpenBrace:
             depth -= 1
             if depth == 0:
                 open_index = i
@@ -927,46 +897,64 @@ def _lex_default_tokens(source_text: str, lexer_type: object) -> tuple[object, .
     )
 
 
+# ---------------------------------------------------------------------------
+# ANTLR visitor for structured control flow extraction
+# ---------------------------------------------------------------------------
+
+
 def _build_control_flow_visitor(visitor_base: type, context: _ExtractorContext) -> type:
-    class SwiftControlFlowVisitor(visitor_base):
+    class TypeScriptControlFlowVisitor(visitor_base):
         def __init__(self) -> None:
             super().__init__()
             self.functions: list[FunctionControlFlow] = []
             self._containers: list[str] = []
 
-        def visitStruct_declaration(self, ctx):
-            name = ctx.struct_name().getText()
+        def visitClassDeclaration(self, ctx):
+            name = ctx.Identifier().getText()
             return self._with_container(name, lambda: self.visitChildren(ctx))
 
-        def visitClass_declaration(self, ctx):
-            name = ctx.class_name().getText()
+        def visitInterfaceDeclaration(self, ctx):
+            name = ctx.Identifier().getText()
             return self._with_container(name, lambda: self.visitChildren(ctx))
 
-        def visitEnum_declaration(self, ctx):
-            name = self._extract_enum_name(ctx)
+        def visitNamespaceDeclaration(self, ctx):
+            name = ctx.namespaceName().getText()
             return self._with_container(name, lambda: self.visitChildren(ctx))
 
-        def visitProtocol_declaration(self, ctx):
-            name = ctx.protocol_name().getText()
+        def visitEnumDeclaration(self, ctx):
+            name = ctx.Identifier().getText()
             return self._with_container(name, lambda: self.visitChildren(ctx))
 
-        def visitExtension_declaration(self, ctx):
-            name = ctx.type_identifier().getText()
-            return self._with_container(name, lambda: self.visitChildren(ctx))
-
-        def visitFunction_declaration(self, ctx):
-            if ctx.function_body() is None:
+        def visitFunctionDeclaration(self, ctx):
+            if ctx.functionBody() is None and ctx.SemiColon() is None:
                 return None
 
-            name = ctx.function_name().getText()
-            signature = context.compact(ctx.function_signature())
-            code_block = ctx.function_body().code_block()
+            name = ctx.Identifier().getText() if ctx.Identifier() else "<anonymous>"
+            sig = context.compact(ctx.callSignature()) if ctx.callSignature() else ""
+            block_ctx = ctx.functionBody()
             self.functions.append(
                 FunctionControlFlow(
                     name=name,
-                    signature=f"func {name}{signature}",
+                    signature=f"function {name}{sig}",
                     container=".".join(self._containers) if self._containers else None,
-                    steps=self._extract_code_block(code_block),
+                    steps=self._extract_block_from_body(block_ctx),
+                )
+            )
+            return None
+
+        def visitPropertyMemberDeclaration(self, ctx):
+            if ctx.callSignature() is None:
+                return None
+            
+            name = ctx.propertyName().getText() if ctx.propertyName() else "<anonymous>"
+            sig = context.compact(ctx.callSignature()) if ctx.callSignature() else ""
+            block_ctx = ctx.functionBody()
+            self.functions.append(
+                FunctionControlFlow(
+                    name=name,
+                    signature=f"function {name}{sig}",
+                    container=".".join(self._containers) if self._containers else None,
+                    steps=self._extract_block_from_body(block_ctx),
                 )
             )
             return None
@@ -978,164 +966,183 @@ def _build_control_flow_visitor(visitor_base: type, context: _ExtractorContext) 
             finally:
                 self._containers.pop()
 
-        def _extract_enum_name(self, enum_ctx) -> str:
-            if enum_ctx.union_style_enum() is not None:
-                return enum_ctx.union_style_enum().enum_name().getText()
-            if enum_ctx.raw_value_style_enum() is not None:
-                return enum_ctx.raw_value_style_enum().enum_name().getText()
-            return "enum"
-
-        def _extract_code_block(self, code_block_ctx) -> tuple[ControlFlowStep, ...]:
-            if code_block_ctx is None or code_block_ctx.statements() is None:
+        def _extract_block(self, block_ctx) -> tuple[ControlFlowStep, ...]:
+            if block_ctx is None:
                 return ()
-            return self._extract_statements(code_block_ctx.statements())
+            statement_list = block_ctx.statementList()
+            if statement_list is None:
+                return ()
+            return self._extract_statement_list(statement_list)
 
-        def _extract_statements(self, statements_ctx) -> tuple[ControlFlowStep, ...]:
+        def _extract_statement_as_steps(self, stmt_ctx) -> tuple[ControlFlowStep, ...]:
+            if stmt_ctx is None:
+                return ()
+            if hasattr(stmt_ctx, "block") and stmt_ctx.block() is not None:
+                return self._extract_block(stmt_ctx.block())
+            extracted = self._extract_statement(stmt_ctx)
+            return (extracted,) if extracted is not None else ()
+
+        def _extract_block_from_body(self, body_ctx) -> tuple[ControlFlowStep, ...]:
+            if body_ctx is None:
+                return ()
+            source_elements = body_ctx.sourceElements()
+            if source_elements is None:
+                return ()
             steps: list[ControlFlowStep] = []
-            for statement_ctx in statements_ctx.statement():
+            for source_element in source_elements.sourceElement():
+                stmt = source_element.statement()
+                if stmt is not None:
+                    extracted = self._extract_statement(stmt)
+                    if extracted is not None:
+                        steps.append(extracted)
+            return tuple(steps)
+
+        def _extract_statement_list(self, statement_list_ctx) -> tuple[ControlFlowStep, ...]:
+            steps: list[ControlFlowStep] = []
+            for statement_ctx in statement_list_ctx.statement():
                 extracted = self._extract_statement(statement_ctx)
                 if extracted is not None:
                     steps.append(extracted)
             return tuple(steps)
 
         def _extract_statement(self, statement_ctx) -> ControlFlowStep | None:
-            if statement_ctx.loop_statement() is not None:
-                return self._extract_loop_statement(statement_ctx.loop_statement())
-            if statement_ctx.branch_statement() is not None:
-                return self._extract_branch_statement(statement_ctx.branch_statement())
-            if statement_ctx.labeled_statement() is not None:
-                return self._extract_labeled_statement(statement_ctx.labeled_statement())
-            if statement_ctx.control_transfer_statement() is not None:
-                return ActionFlowStep(context.compact(statement_ctx.control_transfer_statement()))
-            if statement_ctx.defer_statement() is not None:
-                return DeferFlowStep(
-                    body_steps=self._extract_code_block(statement_ctx.defer_statement().code_block())
-                )
-            if statement_ctx.do_statement() is not None:
-                return self._extract_do_statement(statement_ctx.do_statement())
-            if statement_ctx.declaration() is not None:
-                return ActionFlowStep(context.compact(statement_ctx.declaration()))
-            if statement_ctx.expression() is not None:
-                return ActionFlowStep(context.compact(statement_ctx.expression()))
-            if statement_ctx.compiler_control_statement() is not None:
-                return ActionFlowStep(context.compact(statement_ctx.compiler_control_statement()))
+            if statement_ctx.block() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.block()))
+            if statement_ctx.ifStatement() is not None:
+                return self._extract_if_statement(statement_ctx.ifStatement())
+            if statement_ctx.iterationStatement() is not None:
+                return self._extract_iteration_statement(statement_ctx.iterationStatement())
+            if statement_ctx.switchStatement() is not None:
+                return self._extract_switch_statement(statement_ctx.switchStatement())
+            if statement_ctx.tryStatement() is not None:
+                return self._extract_try_statement(statement_ctx.tryStatement())
+            if statement_ctx.returnStatement() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.returnStatement()))
+            if statement_ctx.throwStatement() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.throwStatement()))
+            if statement_ctx.continueStatement() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.continueStatement()))
+            if statement_ctx.breakStatement() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.breakStatement()))
+            if statement_ctx.variableStatement() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.variableStatement()))
+            if statement_ctx.expressionStatement() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.expressionStatement()))
+            if statement_ctx.functionDeclaration() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.functionDeclaration()))
+            if statement_ctx.classDeclaration() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.classDeclaration()))
+            if statement_ctx.interfaceDeclaration() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.interfaceDeclaration()))
+            if statement_ctx.namespaceDeclaration() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.namespaceDeclaration()))
+            if statement_ctx.enumDeclaration() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.enumDeclaration()))
+            if statement_ctx.typeAliasDeclaration() is not None:
+                return ActionFlowStep(context.compact(statement_ctx.typeAliasDeclaration()))
             return ActionFlowStep(context.compact(statement_ctx))
 
-        def _extract_labeled_statement(self, labeled_ctx) -> ControlFlowStep:
-            label = labeled_ctx.label_name().getText()
-            if labeled_ctx.loop_statement() is not None:
-                inner = self._extract_loop_statement(labeled_ctx.loop_statement())
-                return ActionFlowStep(f"label {label}") if inner is None else inner
-            if labeled_ctx.if_statement() is not None:
-                return self._extract_if_statement(labeled_ctx.if_statement())
-            if labeled_ctx.switch_statement() is not None:
-                return self._extract_switch_statement(labeled_ctx.switch_statement())
-            if labeled_ctx.do_statement() is not None:
-                return self._extract_do_statement(labeled_ctx.do_statement())
-            return ActionFlowStep(f"label {label}")
-
-        def _extract_loop_statement(self, loop_ctx) -> ControlFlowStep:
-            if loop_ctx.for_in_statement() is not None:
-                return self._extract_for_in_statement(loop_ctx.for_in_statement())
-            if loop_ctx.while_statement() is not None:
-                return self._extract_while_statement(loop_ctx.while_statement())
-            return self._extract_repeat_while_statement(loop_ctx.repeat_while_statement())
-
-        def _extract_branch_statement(self, branch_ctx) -> ControlFlowStep:
-            if branch_ctx.if_statement() is not None:
-                return self._extract_if_statement(branch_ctx.if_statement())
-            if branch_ctx.guard_statement() is not None:
-                return self._extract_guard_statement(branch_ctx.guard_statement())
-            return self._extract_switch_statement(branch_ctx.switch_statement())
-
         def _extract_if_statement(self, if_ctx) -> IfFlowStep:
-            then_steps = self._extract_code_block(if_ctx.code_block())
+            then_steps = self._extract_statement_as_steps(if_ctx.statement(0)) if if_ctx.statement(0) else ()
             else_steps: tuple[ControlFlowStep, ...] = ()
-            if if_ctx.else_clause() is not None:
-                else_clause = if_ctx.else_clause()
-                if else_clause.code_block() is not None:
-                    else_steps = self._extract_code_block(else_clause.code_block())
-                elif else_clause.if_statement() is not None:
-                    else_steps = (self._extract_if_statement(else_clause.if_statement()),)
+            if len(if_ctx.statement()) > 1 and if_ctx.statement(1) is not None:
+                else_steps = self._extract_statement_as_steps(if_ctx.statement(1))
             return IfFlowStep(
-                condition=context.compact(if_ctx.condition_list()),
+                condition=context.compact(if_ctx.expressionSequence()),
                 then_steps=then_steps,
                 else_steps=else_steps,
             )
 
-        def _extract_guard_statement(self, guard_ctx) -> GuardFlowStep:
-            return GuardFlowStep(
-                condition=context.compact(guard_ctx.condition_list()),
-                else_steps=self._extract_code_block(guard_ctx.code_block()),
+        def _extract_iteration_statement(self, iter_ctx) -> ControlFlowStep:
+            name = type(iter_ctx).__name__
+            if name == "DoStatementContext":
+                return self._extract_do_statement(iter_ctx)
+            if name == "WhileStatementContext":
+                return self._extract_while_statement(iter_ctx)
+            if name in ("ForInStatementContext", "ForVarInStatementContext"):
+                return self._extract_for_in_statement(iter_ctx)
+            return self._extract_c_style_for_statement(iter_ctx)
+
+        def _extract_do_statement(self, do_ctx) -> DoWhileFlowStep:
+            body_stmt = do_ctx.statement() if do_ctx.statement() else None
+            return DoWhileFlowStep(
+                condition=context.compact(do_ctx.expressionSequence())
+                if do_ctx.expressionSequence()
+                else "condition",
+                body_steps=self._extract_statement_as_steps(body_stmt) if body_stmt else (),
+            )
+
+        def _extract_while_statement(self, while_ctx) -> WhileFlowStep:
+            body_stmt = while_ctx.statement() if while_ctx.statement() else None
+            return WhileFlowStep(
+                condition=context.compact(while_ctx.expressionSequence()),
+                body_steps=self._extract_statement_as_steps(body_stmt) if body_stmt else (),
+            )
+
+        def _extract_for_in_statement(self, for_ctx) -> ForInFlowStep | ForOfFlowStep:
+            body_stmt = for_ctx.statement() if for_ctx.statement() else None
+            header = context.compact(for_ctx)
+            if " of " in header:
+                return ForOfFlowStep(
+                    header=header,
+                    body_steps=self._extract_statement_as_steps(body_stmt) if body_stmt else (),
+                )
+            return ForInFlowStep(
+                header=header,
+                body_steps=self._extract_statement_as_steps(body_stmt) if body_stmt else (),
+            )
+
+        def _extract_c_style_for_statement(self, for_ctx) -> CStyleForFlowStep:
+            body_stmt = for_ctx.statement() if for_ctx.statement() else None
+            return CStyleForFlowStep(
+                header=context.compact(for_ctx),
+                body_steps=self._extract_statement_as_steps(body_stmt) if body_stmt else (),
             )
 
         def _extract_switch_statement(self, switch_ctx) -> SwitchFlowStep:
             cases: list[SwitchCaseFlow] = []
-            for switch_case_ctx in self._flatten_switch_cases(switch_ctx.switch_cases()):
-                cases.append(self._extract_switch_case(switch_case_ctx))
+            case_block = switch_ctx.caseBlock()
+            if case_block is not None:
+                for case_clauses in case_block.caseClauses():
+                    for case_clause in case_clauses.caseClause():
+                        label = context.compact(case_clause.expressionSequence())
+                        steps = ()
+                        if case_clause.statementList() is not None:
+                            steps = self._extract_statement_list(case_clause.statementList())
+                        cases.append(SwitchCaseFlow(label=label or "case", steps=steps))
+                if case_block.defaultClause() is not None:
+                    default = case_block.defaultClause()
+                    steps = ()
+                    if default.statementList() is not None:
+                        steps = self._extract_statement_list(default.statementList())
+                    cases.append(SwitchCaseFlow(label="default", steps=steps))
             return SwitchFlowStep(
-                expression=context.compact(switch_ctx.expression()),
+                expression=context.compact(switch_ctx.expressionSequence()),
                 cases=tuple(cases),
             )
 
-        def _extract_switch_case(self, switch_case_ctx) -> SwitchCaseFlow:
-            if switch_case_ctx.conditional_switch_case() is not None:
-                return SwitchCaseFlow(
-                    label=context.compact(switch_case_ctx.conditional_switch_case()),
-                    steps=(),
+        def _extract_try_statement(self, try_ctx) -> TryCatchFlowStep:
+            body_steps = self._extract_block(try_ctx.block())
+            catches: list[CatchClauseFlow] = []
+            finally_steps: tuple[ControlFlowStep, ...] = ()
+
+            if try_ctx.catchProduction() is not None:
+                catch = try_ctx.catchProduction()
+                catch_block = catch.block()
+                catches.append(
+                    CatchClauseFlow(
+                        pattern=catch.Identifier().getText() if hasattr(catch, 'Identifier') and catch.Identifier() else "catch",
+                        steps=self._extract_block(catch_block),
+                    )
                 )
 
-            label_ctx = switch_case_ctx.case_label() or switch_case_ctx.default_label()
-            steps = ()
-            if switch_case_ctx.statements() is not None:
-                steps = self._extract_statements(switch_case_ctx.statements())
-            return SwitchCaseFlow(
-                label=context.compact(label_ctx),
-                steps=steps,
-            )
+            if try_ctx.finallyProduction() is not None:
+                finally_block = try_ctx.finallyProduction().block()
+                finally_steps = self._extract_block(finally_block)
 
-        def _flatten_switch_cases(self, switch_cases_ctx) -> tuple[object, ...]:
-            cases: list[object] = []
-            current = switch_cases_ctx
-            while current is not None:
-                cases.append(current.switch_case())
-                current = current.switch_cases()
-            return tuple(cases)
-
-        def _extract_for_in_statement(self, for_ctx) -> ForInFlowStep:
-            return ForInFlowStep(
-                header=f"{context.compact(for_ctx.pattern())} in {context.compact(for_ctx.expression())}",
-                body_steps=self._extract_code_block(for_ctx.code_block()),
-            )
-
-        def _extract_while_statement(self, while_ctx) -> WhileFlowStep:
-            return WhileFlowStep(
-                condition=context.compact(while_ctx.condition_list()),
-                body_steps=self._extract_code_block(while_ctx.code_block()),
-            )
-
-        def _extract_repeat_while_statement(self, repeat_ctx) -> RepeatWhileFlowStep:
-            return RepeatWhileFlowStep(
-                condition=context.compact(repeat_ctx.expression()),
-                body_steps=self._extract_code_block(repeat_ctx.code_block()),
-            )
-
-        def _extract_do_statement(self, do_ctx) -> DoCatchFlowStep:
-            catches: list[CatchClauseFlow] = []
-            if do_ctx.catch_clauses() is not None:
-                for catch_clause_ctx in do_ctx.catch_clauses().catch_clause():
-                    catches.append(
-                        CatchClauseFlow(
-                            pattern=context.compact(catch_clause_ctx.catch_pattern_list())
-                            if catch_clause_ctx.catch_pattern_list() is not None
-                            else "catch",
-                            steps=self._extract_code_block(catch_clause_ctx.code_block()),
-                        )
-                    )
-
-            return DoCatchFlowStep(
-                body_steps=self._extract_code_block(do_ctx.code_block()),
+            return TryCatchFlowStep(
+                body_steps=body_steps,
                 catches=tuple(catches),
+                finally_steps=finally_steps,
             )
-
-    return SwiftControlFlowVisitor
+    return TypeScriptControlFlowVisitor

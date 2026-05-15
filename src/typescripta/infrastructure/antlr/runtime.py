@@ -10,13 +10,13 @@ from antlr4.atn.PredictionMode import PredictionMode
 from antlr4.error.ErrorStrategy import BailErrorStrategy
 from antlr4.error.Errors import ParseCancellationException
 
-from swifta.domain.errors import GeneratedParserNotAvailableError
-from swifta.domain.model import GrammarVersion, SyntaxDiagnostic
-from swifta.infrastructure.antlr.error_listener import CollectingErrorListener
+from typescripta.domain.errors import GeneratedParserNotAvailableError
+from typescripta.domain.model import GrammarVersion, SyntaxDiagnostic
+from typescripta.infrastructure.antlr.error_listener import CollectingErrorListener
 
 
 ANTLR_GRAMMAR_VERSION = GrammarVersion(
-    "antlr4@4.13.2+python-compat:antlr/grammars-v4/swift/swift5 (targets Swift 5.4)"
+    "antlr4@4.13.2+python-compat:antlr/grammars-v4/typescript (TypeScript)"
 )
 
 
@@ -38,24 +38,24 @@ class ParseTreeResult:
 def load_generated_types() -> GeneratedParserTypes:
     try:
         lexer_module = importlib.import_module(
-            "swifta.infrastructure.antlr.generated.swift5.Swift5Lexer"
+            "typescripta.infrastructure.antlr.generated.typescript.TypeScriptLexer"
         )
         parser_module = importlib.import_module(
-            "swifta.infrastructure.antlr.generated.swift5.Swift5Parser"
+            "typescripta.infrastructure.antlr.generated.typescript.TypeScriptParser"
         )
         visitor_module = importlib.import_module(
-            "swifta.infrastructure.antlr.generated.swift5.Swift5ParserVisitor"
+            "typescripta.infrastructure.antlr.generated.typescript.TypeScriptParserVisitor"
         )
     except ModuleNotFoundError as error:
         raise GeneratedParserNotAvailableError(
-            "generated Swift parser artifacts are missing; run "
-            "`uv run python scripts/generate_swift_parser.py` first"
+            "generated TypeScript parser artifacts are missing; run "
+            "`uv run python scripts/generate_typescript_parser.py` first"
         ) from error
 
     return GeneratedParserTypes(
-        lexer_type=lexer_module.Swift5Lexer,
-        parser_type=parser_module.Swift5Parser,
-        visitor_type=visitor_module.Swift5ParserVisitor,
+        lexer_type=lexer_module.TypeScriptLexer,
+        parser_type=parser_module.TypeScriptParser,
+        visitor_type=visitor_module.TypeScriptParserVisitor,
     )
 
 
@@ -65,7 +65,7 @@ def parse_source_text(
 ) -> ParseTreeResult:
     return _parse_entry_text(
         source_text,
-        entry_rule_name="top_level",
+        entry_rule_name="program",
         generated_types=generated_types,
     )
 
@@ -76,7 +76,7 @@ def parse_code_block_text(
 ) -> ParseTreeResult:
     return _parse_entry_text(
         source_text,
-        entry_rule_name="code_block",
+        entry_rule_name="block",
         generated_types=generated_types,
     )
 
