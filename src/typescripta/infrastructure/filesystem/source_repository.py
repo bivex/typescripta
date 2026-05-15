@@ -25,21 +25,40 @@ class FileSystemSourceRepository(SourceRepository):
 
         return self._load_source_unit(source_path)
 
-    def list_typescript_sources(self, root_path: str) -> tuple[SourceUnit, ...]:
+    def list_typescript_sources(
+        self, root_path: str, ignore_folders: Sequence[str] = ()
+    ) -> tuple[SourceUnit, ...]:
         root = Path(root_path).expanduser().resolve()
         if not root.exists():
             raise InputValidationError(f"source directory does not exist: {root}")
         if not root.is_dir():
             raise InputValidationError(f"path is not a directory: {root}")
 
-        source_paths = tuple(
-            sorted(
-                path
-                for ext in self._EXTENSIONS
-                for path in root.rglob(f"*{ext}")
-                if path.is_file()
-            )
-        )
+        ignore_set = set(ignore_folders)
+        source_paths: list[Path] = []
+
+        def _collect(current: Path) -> None:
+            if current.name in ignore_set:
+                return
+
+            # Add files in current directory
+            for ext in self._EXTENSIONS:
+                for file_path in current.glob(f"*{ext}"):
+                    if file_path.is_file():
+                        source_paths.append(file_path)
+
+            # Recurse into subdirectories
+            try:
+                for item in current.iterdir():
+                    if item.is_dir():
+                        _collect(item)
+            except OSError:
+                # Skip directories we can't access
+                pass
+
+        _collect(root)
+        source_paths.sort()
+
         if not source_paths:
             raise InputValidationError(f"no TypeScript files found under: {root}")
 

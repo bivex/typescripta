@@ -16,6 +16,7 @@ class ParseFileCommand:
 @dataclass(frozen=True, slots=True)
 class ParseDirectoryCommand:
     root_path: str
+    ignore_folders: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +132,7 @@ class ParsingJobReportDTO:
 @dataclass(frozen=True, slots=True)
 class DetectSmellsCommand:
     path: str
+    ignore_folders: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

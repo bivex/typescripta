@@ -20,6 +20,7 @@ class BuildNassiDiagramCommand:
 @dataclass(frozen=True, slots=True)
 class BuildNassiDirectoryCommand:
     root_path: str
+    ignore_folders: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +63,11 @@ class NassiDiagramService:
         return self._build_document(source_unit)
 
     def build_directory_diagrams(self, command: BuildNassiDirectoryCommand) -> NassiDiagramBundleDTO:
-        source_units = tuple(self.source_repository.list_typescript_sources(command.root_path))
+        source_units = tuple(
+            self.source_repository.list_typescript_sources(
+                command.root_path, ignore_folders=command.ignore_folders
+            )
+        )
         documents = tuple(self._build_document(source_unit) for source_unit in source_units)
         return NassiDiagramBundleDTO(
             root_path=str(Path(command.root_path).expanduser().resolve()),

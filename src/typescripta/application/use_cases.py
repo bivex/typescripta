@@ -51,7 +51,11 @@ class ParsingJobService:
         return self._run_job((source_unit,))
 
     def parse_directory(self, command: ParseDirectoryCommand) -> ParsingJobReportDTO:
-        source_units = tuple(self.source_repository.list_typescript_sources(command.root_path))
+        source_units = tuple(
+            self.source_repository.list_typescript_sources(
+                command.root_path, ignore_folders=command.ignore_folders
+            )
+        )
         return self._run_job(source_units)
 
     def _run_job(self, source_units: tuple[SourceUnit, ...]) -> ParsingJobReportDTO:
@@ -172,7 +176,11 @@ class SmellJobService:
     def run_smell_detection(self, command: DetectSmellsCommand) -> SmellJobReportDTO:
         path = command.path
         if self.source_repository.is_dir(path):
-            source_units = tuple(self.source_repository.list_typescript_sources(path))
+            source_units = tuple(
+                self.source_repository.list_typescript_sources(
+                    path, ignore_folders=command.ignore_folders
+                )
+            )
         else:
             source_units = (self.source_repository.load_file(path),)
 
