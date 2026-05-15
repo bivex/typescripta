@@ -15,6 +15,11 @@ from typescripta.application.dto import (
     SourceParseReportDTO,
     StructuralElementDTO,
     SyntaxDiagnosticDTO,
+    DetectSmellsCommand,
+    SmellDTO,
+    SourceSmellReportDTO,
+    SmellJobSummaryDTO,
+    SmellJobReportDTO,
 )
 from typescripta.domain.events import (
     ParsingJobCompleted,
@@ -22,13 +27,14 @@ from typescripta.domain.events import (
     SourceUnitParsed,
     SourceUnitParsingFailed,
 )
-from typescripta.domain.model import ParseOutcome, ParseStatus, ParsingJob, SourceUnit
+from typescripta.domain.model import ParseOutcome, ParseStatus, ParsingJob, SourceUnit, CodeSmell
 from typescripta.domain.ports import (
     Clock,
     DomainEventPublisher,
     ParsingJobRepository,
     SourceRepository,
     TypeScriptSyntaxParser,
+    CodeSmellDetector,
 )
 
 
@@ -156,3 +162,54 @@ def _map_source_outcome(outcome: ParseOutcome) -> SourceParseReportDTO:
         ),
         failure_message=outcome.failure_message,
     )
+
+
+@dataclass(slots=True)
+class SmellJobService:
+    source_repository: SourceRepository
+    detectors: tuple[CodeSmellDetector, ...]
+
+    def run_smell_detection(self, command: DetectSmellsCommand) -> SmellJobReportDTO:
+        path = command.path
+        if self.source_repository.is_dir(path):
+            source_units = tuple(self.source_repository.list_typescript_sources(path))
+        else:
+            source_units = (self.source_repository.load_file(path),)
+
+        reports: list[SourceSmellReportDTO] = []
+        total_smells = 0
+        kind_counts: dict[str, int] = {}
+
+        for source_unit in source_units:
+            unit_smells: list[CodeSmell] = []
+            for detector in self.detectors:
+                found = detector.detect(source_unit)
+                unit_smells.extend(found)
+                for smell in found:
+                    kind_counts[smell.kind] = kind_counts.get(smell.kind, 0) + 1
+            
+            total_smells += len(unit_smells)
+            reports.append(
+                SourceSmellReportDTO(
+                    source_location=source_unit.location,
+                    smells=tuple(
+                        SmellDTO(
+                            kind=s.kind,
+                            message=s.message,
+                            line=s.line,
+                            column=s.column,
+                        )
+                        for s in unit_smells
+                    ),
+                )
+            )
+
+        return SmellJobReportDTO(
+            job_id=f"smell-{uuid4()}",
+            reports=tuple(reports),
+            summary=SmellJobSummaryDTO(
+                source_count=len(source_units),
+                total_smell_count=total_smells,
+                smell_counts_by_kind=kind_counts,
+            ),
+        )

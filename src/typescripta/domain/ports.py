@@ -26,6 +26,10 @@ class SourceRepository(ABC):
     def list_typescript_sources(self, root_path: str) -> Sequence[SourceUnit]:
         raise NotImplementedError
 
+    @abstractmethod
+    def is_dir(self, path: str) -> bool:
+        raise NotImplementedError
+
 
 class ParsingJobRepository(ABC):
     @abstractmethod

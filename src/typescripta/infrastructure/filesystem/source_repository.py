@@ -45,6 +45,9 @@ class FileSystemSourceRepository(SourceRepository):
 
         return tuple(self._load_source_unit(path) for path in source_paths)
 
+    def is_dir(self, path: str) -> bool:
+        return Path(path).expanduser().resolve().is_dir()
+
     def _load_source_unit(self, path: Path) -> SourceUnit:
         try:
             content = path.read_text(encoding="utf-8")

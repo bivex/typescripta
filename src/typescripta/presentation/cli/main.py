@@ -15,13 +15,32 @@ from typescripta.application.control_flow import (
     NassiDiagramBundleDTO,
     NassiDiagramService,
 )
-from typescripta.application.dto import ParseDirectoryCommand, ParseFileCommand, ParsingJobReportDTO
-from typescripta.application.use_cases import ParsingJobService
+from typescripta.application.dto import (
+    ParseDirectoryCommand,
+    ParseFileCommand,
+    ParsingJobReportDTO,
+    DetectSmellsCommand,
+)
+from typescripta.application.use_cases import ParsingJobService, SmellJobService
 from typescripta.domain.errors import TypeScriptaError
 from typescripta.infrastructure.antlr.control_flow_extractor import AntlrTypeScriptControlFlowExtractor
 from typescripta.infrastructure.antlr.parser_adapter import AntlrTypeScriptSyntaxParser
 from typescripta.infrastructure.filesystem.source_repository import FileSystemSourceRepository
 from typescripta.infrastructure.rendering.nassi_html_renderer import HtmlNassiDiagramRenderer
+from typescripta.infrastructure.smells.comment_density_detector import CommentDensityDetector
+from typescripta.infrastructure.smells.data_clumps_detector import DataClumpsDetector
+from typescripta.infrastructure.smells.divergent_change_detector import DivergentChangeDetector
+from typescripta.infrastructure.smells.feature_envy_detector import FeatureEnvyDetector
+from typescripta.infrastructure.smells.message_chains_detector import MessageChainsDetector
+from typescripta.infrastructure.smells.middle_man_detector import MiddleManDetector
+from typescripta.infrastructure.smells.primitive_obsession_detector import PrimitiveObsessionDetector
+from typescripta.infrastructure.smells.refused_bequest_detector import RefusedBequestDetector
+from typescripta.infrastructure.smells.shotgun_surgery_detector import ShotgunSurgeryDetector
+from typescripta.infrastructure.smells.speculative_generality_detector import (
+    SpeculativeGeneralityDetector,
+)
+from typescripta.infrastructure.smells.switch_statements_detector import SwitchStatementsDetector
+from typescripta.infrastructure.smells.temporary_field_detector import TemporaryFieldDetector
 from typescripta.infrastructure.system import (
     InMemoryParsingJobRepository,
     StructuredLoggingEventPublisher,
@@ -82,6 +101,10 @@ def main(argv: list[str] | None = None) -> int:
             ]
             print(json.dumps(payload, indent=2))
             return 0
+        elif args.command == "smells":
+            report = _build_smell_service().run_smell_detection(DetectSmellsCommand(path=args.path))
+            print(json.dumps(report.to_dict(), indent=2))
+            return 0
         else:
             parser.error(f"unsupported command: {args.command}")
     except TypeScriptaError as error:
@@ -122,6 +145,12 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         "--out",
         help="Output directory. Defaults to <input>.nassi/.",
     )
+
+    smells = subparsers.add_parser(
+        "smells",
+        help="Detect code smells in a TypeScript file or directory.",
+    )
+    smells.add_argument("path", help="Path to a .ts file or a directory.")
     return parser
 
 
@@ -140,6 +169,26 @@ def _build_nassi_service() -> NassiDiagramService:
         source_repository=FileSystemSourceRepository(),
         extractor=AntlrTypeScriptControlFlowExtractor(),
         renderer=HtmlNassiDiagramRenderer(),
+    )
+
+
+def _build_smell_service() -> SmellJobService:
+    return SmellJobService(
+        source_repository=FileSystemSourceRepository(),
+        detectors=(
+            CommentDensityDetector(),
+            DataClumpsDetector(),
+            DivergentChangeDetector(),
+            FeatureEnvyDetector(),
+            MessageChainsDetector(),
+            MiddleManDetector(),
+            PrimitiveObsessionDetector(),
+            RefusedBequestDetector(),
+            ShotgunSurgeryDetector(),
+            SpeculativeGeneralityDetector(),
+            SwitchStatementsDetector(),
+            TemporaryFieldDetector(),
+        ),
     )
 
 

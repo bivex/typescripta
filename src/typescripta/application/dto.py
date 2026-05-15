@@ -127,3 +127,64 @@ class ParsingJobReportDTO:
             "sources": [source.to_dict() for source in self.sources],
         }
 
+
+@dataclass(frozen=True, slots=True)
+class DetectSmellsCommand:
+    path: str
+
+
+@dataclass(frozen=True, slots=True)
+class SmellDTO:
+    kind: str
+    message: str
+    line: int
+    column: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "kind": self.kind,
+            "message": self.message,
+            "line": self.line,
+            "column": self.column,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SourceSmellReportDTO:
+    source_location: str
+    smells: tuple[SmellDTO, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source_location": self.source_location,
+            "smells": [smell.to_dict() for smell in self.smells],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SmellJobSummaryDTO:
+    source_count: int
+    total_smell_count: int
+    smell_counts_by_kind: dict[str, int]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source_count": self.source_count,
+            "total_smell_count": self.total_smell_count,
+            "smell_counts_by_kind": self.smell_counts_by_kind,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SmellJobReportDTO:
+    job_id: str
+    reports: tuple[SourceSmellReportDTO, ...]
+    summary: SmellJobSummaryDTO
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "job_id": self.job_id,
+            "reports": [report.to_dict() for report in self.reports],
+            "summary": self.summary.to_dict(),
+        }
+
